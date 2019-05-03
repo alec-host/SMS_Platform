@@ -1,0 +1,143 @@
+
+-- CREATE DATABASE mpesabox
+
+-- ============================================================================
+CREATE TABLE `tbl_system_log` (
+	`ID` INT(11) NOT NULL AUTO_INCREMENT,
+	`msisdn` VARCHAR(15) NOT NULL,
+	`trx_ref` VARCHAR(25) NOT NULL,
+	`amount` VARCHAR(50) NULL DEFAULT '0.00',
+	`trx_date` VARCHAR(50) NULL DEFAULT NULL,
+	`date_created` TIMESTAMP NULL DEFAULT CURRENT_TIMESTAMP,
+	`is_archived` INT(1) NULL DEFAULT '0',
+	PRIMARY KEY (`ID`),
+	UNIQUE INDEX `trx_ref` (`trx_ref`),
+	INDEX `IndxMobile` (`msisdn`),
+	INDEX `IndxArchived` (`is_archived`)
+)
+COLLATE='latin1_swedish_ci'
+ENGINE=InnoDB
+AUTO_INCREMENT=0;
+
+-- =============================================================================
+
+CREATE TABLE `tbl_client_outh` (
+	`ID` INT(11) NOT NULL AUTO_INCREMENT,
+	`consumer_key` VARCHAR(50) NOT NULL,
+	`consumer_secret` VARCHAR(50) NOT NULL,
+	`token` VARCHAR(50) NOT NULL,
+	`token_lifespan` VARCHAR(10) NOT NULL DEFAULT '3599',
+	`date_created` DATETIME NOT NULL,
+	PRIMARY KEY (`ID`),
+	UNIQUE INDEX `consumer_key` (`consumer_key`)
+)
+COLLATE='latin1_swedish_ci'
+ENGINE=MyISAM
+AUTO_INCREMENT=0;
+
+-- =============================================================================
+
+CREATE PROCEDURE `sProGenerateApplicationToken`(
+	IN `TOKEN` VARCHAR(50),
+	IN `CONSUMER_KEY` VARCHAR(50),
+	IN `CONSUMER_SECRET` CHAR(50)
+)
+LANGUAGE SQL
+NOT DETERMINISTIC
+CONTAINS SQL
+SQL SECURITY DEFINER
+COMMENT ''
+BEGIN
+
+DECLARE EXPIRE_TIME VARCHAR(5) DEFAULT "3599";
+
+IF(TRIM(TOKEN) != "" || TRIM(CONSUMER_KEY) != "" || TRIM(CONSUMER_SECRET) != "") THEN
+	-- ===========================================================================
+	-- .check if application authentication info exist.
+	-- ===========================================================================
+	SET @qry = CONCAT("SELECT TIME_TO_SEC(TIMEDIFF(NOW(),date_created)) INTO @expireTime FROM mpesabox.`tbl_client_outh`");
+	PREPARE stmt FROM @qry;
+	EXECUTE stmt;
+	DEALLOCATE PREPARE stmt;
+	-- ===========================================================================.
+	-- .update application authentication token.
+	-- ===========================================================================.	
+	IF(@expireTime IS NULL || TRIM((@expireTime) - EXPIRE_TIME) >=0) THEN
+		SET @qry = CONCAT("INSERT INTO mpesabox.`tbl_client_outh` ",
+		                  "(`consumer_key`,`consumer_secret`,`token`,`date_created`) ",
+								"VALUES ",
+								"('",TRIM(CONSUMER_KEY),"','",TRIM(CONSUMER_SECRET),"','",TRIM(TOKEN),"','",NOW(),"')",
+								"ON DUPLICATE KEY UPDATE `token` = '",TRIM(TOKEN),"',`date_created`='",NOW(),"'");					
+		PREPARE stmt FROM @qry;
+		EXECUTE stmt;
+		DEALLOCATE PREPARE stmt;
+	END IF;	
+	-- ===========================================================================.
+	-- .ouput.
+	-- ===========================================================================.
+	SELECT CONCAT('{"RESULT":"Successful","INFO":',CONCAT('"',CONSUMER_KEY,'_',CONSUMER_SECRET,'"'),'}') AS message;	
+ELSE
+	-- ===========================================================================.
+	-- .ouput.
+	-- ===========================================================================.
+	SELECT CONCAT('{"RESULT":"Fail","INFO":',CONCAT('"',CONSUMER_KEY,'_',CONSUMER_SECRET,'"'),'}') AS message;								
+END IF;
+
+-- ===========================================================================.
+-- .reset variables.
+-- ===========================================================================.
+SET @qry = NULL;
+SET TOKEN = NULL;
+SET CONSUMER_KEY = NULL;
+SET CONSUMER_SECRET = NULL;
+
+END
+
+-- =============================================================================
+
+
+CREATE DEFINER=`root`@`localhost` PROCEDURE `sProcRecordSystemLogs`(
+	IN `MSISDN` VARCHAR(15),
+	IN `TRX_REF` VARCHAR(25),
+	IN `AMOUNT` VARCHAR(15),
+	IN `TRX_DATE` VARCHAR(20)
+)
+LANGUAGE SQL
+NOT DETERMINISTIC
+CONTAINS SQL
+SQL SECURITY DEFINER
+COMMENT ''
+BEGIN
+	IF(TRIM(MSISDN) = "" || TRIM(TRX_REF) = "" || TRIM(AMOUNT) = "" || TRIM(TRX_DATE) = "") THEN
+		-- ===========================================================================.
+		-- .ouput.
+		-- ===========================================================================.
+		SELECT CONCAT('{"RESULT":"FAIL","MESSAGE":"Params must be checked."}') AS message;
+	ELSE
+		-- ===========================================================================.
+		-- .record logs.
+		-- ===========================================================================.	
+		SET @qry = CONCAT("INSERT INTO mpesabox.`tbl_system_log` ",
+		                  "(`msisdn`,`trx_ref`,`amount`,`trx_date`) ",
+						  " VALUES "
+						  "('",TRIM(MSISDN),"','",TRIM(TRX_REF),"','",TRIM(AMOUNT),"','",TRIM(TRX_DATE),"') ",
+						  "ON DUPLICATE KEY UPDATE ",
+						  "`msisdn` = '",TRIM(MSISDN),"',`trx_ref` = '",TRIM(TRX_REF),"',`amount` = '",TRIM(AMOUNT),"', `trx_date` = '",TRIM(TRX_DATE),"'");
+		PREPARE stmt FROM @qry;
+		EXECUTE stmt;
+		DEALLOCATE PREPARE stmt;
+		-- ===========================================================================.
+		-- .ouput.
+		-- ===========================================================================.
+		SELECT CONCAT('{"RESULT":"SUCCESS","MESSAGE":"Log has been recorded."}') AS message;
+	END IF;
+	-- ===========================================================================.
+	-- .reset vars.
+	-- ===========================================================================.
+	SET @qry = NULL;
+	SET MSISDN = NULL;
+	SET TRX_REF = NULL;
+	SET AMOUNT = NULL;
+	SET TRX_DATE = NULL;
+END
+
